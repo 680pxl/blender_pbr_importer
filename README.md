@@ -1,5 +1,3 @@
-Here is the English version of the README.md, ready to be copied and pasted into your GitHub repository.
-
 📦 Blender PBR Auto-Importer (Cycles & Octane)
 A powerful "One-Click" addon for Blender that automates the import of PBR texture sets (from ZIP files or folders). It handles not only the shader setup but also automatically imports the corresponding 3D model (FBX/OBJ/GLTF) if present.
 
@@ -87,5 +85,6 @@ Default Hotkey: Shift + W (in 3D View).
 
 This triggers the file browser for the ZIP Import mode.
 
-📝 License & Credits
-Developed by 680pxl. Free to use and modify.
+📝 Known Issues
+- Has issues finding the correct image textures, when the channel definition is in the name of the file. (eg. corrugated_metal_sheet). Try to use different naming schemes.
+- Cycles Version only: Uses a wrong node setup for transmission textures.
