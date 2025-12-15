@@ -1,0 +1,430 @@
+bl_info = {
+    "name": "Cycles/Eevee PBR Importer",
+    "author": "680pxl (Ported for Cycles)",
+    "version": (2, 2),
+    "blender": (4, 2, 0),
+    "location": "File > Import > Cycles PBR...",
+    "description": "Instantly turns PBR ZIPs into perfect Cycles/Eevee materials",
+    "category": "Import-Export",
+}
+
+import bpy
+import os
+import zipfile
+from bpy_extras.io_utils import ImportHelper
+from bpy.types import Operator, AddonPreferences
+
+# ==============================================================================
+# --- 1. CORE LOGIC (SHARED & ADAPTED) ---
+# ==============================================================================
+
+def create_cycles_tex(nodes, filepath, x_pos, y_pos, mapping_node, links, is_data=False):
+    """Erstellt eine Standard Image Texture Node und verlinkt das Mapping"""
+    try:
+        tex_node = nodes.new(type='ShaderNodeTexImage')
+        img = bpy.data.images.load(filepath)
+        
+        # Color Space Handling (Wichtig für PBR)
+        if is_data and hasattr(img, 'colorspace_settings'):
+            img.colorspace_settings.name = 'Non-Color'
+            
+        tex_node.image = img
+        tex_node.location = (x_pos, y_pos)
+        
+        # Link Mapping (Vector)
+        if mapping_node:
+            links.new(mapping_node.outputs['Vector'], tex_node.inputs['Vector'])
+            
+        return tex_node
+    except:
+        return None
+
+# --- STRICT MATCHING HELPER (Identisch zum Original) ---
+def matches_channel(filename, valid_terms, banned_terms):
+    f = filename.lower()
+    if not any(t in f for t in valid_terms): return False
+    if any(b in f for b in banned_terms): return False
+    return True
+
+def create_and_assign_material(target_objects, folder_path):
+    if not target_objects: return {"WARNING": "No target objects found."}
+
+    mat_name = os.path.basename(os.path.normpath(folder_path))
+    if not mat_name: mat_name = "Cycles_Imported_Mat"
+
+    mat = bpy.data.materials.new(name=mat_name)
+    mat.use_nodes = True
+    tree = mat.node_tree
+    nodes = tree.nodes
+    links = tree.links
+    nodes.clear()
+
+    # --- Basic Layout (Principled BSDF) ---
+    try:
+        output_node = nodes.new(type='ShaderNodeOutputMaterial')
+        output_node.location = (600, 0)
+        
+        bsdf_node = nodes.new(type='ShaderNodeBsdfPrincipled')
+        bsdf_node.location = (200, 0)
+        
+        links.new(bsdf_node.outputs['BSDF'], output_node.inputs['Surface'])
+        
+        # --- Mapping Setup (Global Scale) ---
+        tex_coord = nodes.new(type='ShaderNodeTexCoord')
+        tex_coord.location = (-1400, 200)
+        
+        mapping = nodes.new(type='ShaderNodeMapping')
+        mapping.label = "MASTER SCALE"
+        mapping.location = (-1200, 200)
+        
+        links.new(tex_coord.outputs['UV'], mapping.inputs['Vector'])
+        
+    except Exception as e:
+        return {"ERROR": f"Error during node setup: {str(e)}"}
+
+    found_files = []
+    valid_img_ext = ('.jpg', '.png', '.exr', '.tif', '.tiff', '.jpeg')
+    for root, _, files in os.walk(folder_path):
+        for f in files:
+            if f.lower().endswith(valid_img_ext):
+                found_files.append((f, os.path.join(root, f)))
+
+    processed = []
+    albedo_node = None
+    ao_node = None
+
+    current_y = 400
+    y_step = 280 
+    tex_x = -600
+
+    # --- BAN LISTS ---
+    GLOBAL_BANS = ["billboard", "preview", "thumb"]
+    BANNED_METAL = ["cavity", "curvature", "ao", "ambient", "diffuse", "albedo", "color", "rough", "spec", "norm", "bump", "height", "disp", "mask"]
+    BANNED_ROUGH = ["cavity", "curvature", "metal", "spec", "norm", "bump", "diffuse", "albedo"]
+    BANNED_ALBEDO = ["ao", "ambient", "cavity", "curvature", "rough", "metal", "spec", "norm", "bump", "height", "disp", "mask"]
+    BANNED_NORMAL = ["cavity", "curvature", "bump", "spec", "rough", "metal", "ao"]
+    BANNED_SPEC = ["cavity", "curvature", "rough", "metal", "ao", "norm", "bump"]
+
+    for fname, fpath in found_files:
+        f = fname.lower()
+        if any(b in f for b in GLOBAL_BANS): continue
+
+        # 1. ALBEDO (Base Color)
+        if matches_channel(f, ["albedo", "diffuse", "color", "base"], BANNED_ALBEDO) and "Albedo" not in processed:
+            albedo_node = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=False)
+            processed.append("Albedo")
+            current_y -= y_step
+
+        # 2. AO (Ambient Occlusion)
+        elif matches_channel(f, ["ao", "ambient", "occlusion"], ["rough", "metal", "spec", "norm", "bump"]) and "AO" not in processed:
+            ao_node = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=True)
+            processed.append("AO")
+            current_y -= y_step
+
+        # 3. ROUGHNESS
+        elif matches_channel(f, ["roughness", "rough"], BANNED_ROUGH) and "Roughness" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=True)
+            links.new(n.outputs['Color'], bsdf_node.inputs['Roughness'])
+            processed.append("Roughness")
+            current_y -= y_step
+        
+        # 4. METALLIC
+        elif matches_channel(f, ["metallic", "metalness", "_metal", "-metal"], BANNED_METAL) and "Metal" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=True)
+            links.new(n.outputs['Color'], bsdf_node.inputs['Metallic'])
+            processed.append("Metal")
+            current_y -= y_step
+
+        # 5. NORMAL MAP
+        elif matches_channel(f, ["normal", "nor_gl", "nor_dx"], BANNED_NORMAL) and "Normal" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x - 300, current_y, mapping, links, is_data=True)
+            
+            # Cycles needs a Vector 'Normal Map' node
+            norm_map_node = nodes.new(type='ShaderNodeNormalMap')
+            norm_map_node.location = (tex_x, current_y)
+            
+            links.new(n.outputs['Color'], norm_map_node.inputs['Color'])
+            links.new(norm_map_node.outputs['Normal'], bsdf_node.inputs['Normal'])
+            
+            processed.append("Normal")
+            current_y -= y_step
+        
+        # 6. TRANSMISSION
+        elif matches_channel(f, ["trans", "transmission"], ["opacity", "rough"]) and "Transmission" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=True)
+            # Blender 4.0+ uses 'Transmission Weight', older uses 'Transmission'
+            socket_name = 'Transmission Weight' if 'Transmission Weight' in bsdf_node.inputs else 'Transmission'
+            if socket_name in bsdf_node.inputs:
+                links.new(n.outputs['Color'], bsdf_node.inputs[socket_name])
+            processed.append("Transmission")
+            current_y -= y_step
+
+        # 7. OPACITY / ALPHA
+        elif matches_channel(f, ["opacity", "alpha"], ["trans"]) and "Opacity" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x, current_y, mapping, links, is_data=True)
+            links.new(n.outputs['Color'], bsdf_node.inputs['Alpha'])
+            
+            # --- FIX: BLENDER 4.2+ / 5.0 COMPATIBILITY ---
+            # Prüfen, ob die Attribute existieren, bevor wir sie setzen
+            if hasattr(mat, 'blend_method'):
+                mat.blend_method = 'HASHED' 
+            
+            if hasattr(mat, 'shadow_method'):
+                mat.shadow_method = 'HASHED'
+                
+            processed.append("Opacity")
+            current_y -= y_step
+
+        # 8. DISPLACEMENT
+        elif matches_channel(f, ["height", "disp"], ["normal", "bump"]) and "Disp" not in processed:
+            n = create_cycles_tex(nodes, fpath, tex_x - 300, current_y, mapping, links, is_data=True)
+            
+            disp_node = nodes.new(type='ShaderNodeDisplacement')
+            disp_node.location = (tex_x, current_y)
+            disp_node.inputs['Scale'].default_value = 0.05
+            
+            links.new(n.outputs['Color'], disp_node.inputs['Height'])
+            links.new(disp_node.outputs['Displacement'], output_node.inputs['Displacement'])
+            
+            # --- FIX: BLENDER 4.0+ API ---
+            # Hier auch die Prüfung, falls sich das in 5.0 wieder ändert, aber 'displacement_method' ist aktuell Standard
+            if hasattr(mat, 'displacement_method'):
+                mat.displacement_method = 'DISPLACEMENT'
+            elif hasattr(mat, 'cycles'): # Fallback für sehr alte Versionen
+                mat.cycles.displacement_method = 'DISPLACEMENT'
+            
+            processed.append("Disp")
+            current_y -= y_step
+
+    # --- ALBEDO * AO MIX ---
+    if albedo_node:
+        target_socket = bsdf_node.inputs['Base Color']
+        
+        if ao_node:
+            mix_node = nodes.new(type='ShaderNodeMix') # New Blender 3.4+ Mix Node
+            
+            if hasattr(mix_node, "data_type"): # Blender 3.4+ 'Mix' node
+                mix_node.data_type = 'RGBA'
+                mix_node.blend_type = 'MULTIPLY'
+                mix_node.inputs['Factor'].default_value = 1.0
+                mix_node.location = (-250, albedo_node.location.y)
+                
+                links.new(albedo_node.outputs['Color'], mix_node.inputs['A'])
+                links.new(ao_node.outputs['Color'], mix_node.inputs['B'])
+                links.new(mix_node.outputs['Result'], target_socket)
+            else: # Fallback just in case (MixRGB)
+                mix_node = nodes.new(type='ShaderNodeMixRGB')
+                mix_node.blend_type = 'MULTIPLY'
+                mix_node.inputs['Fac'].default_value = 1.0
+                mix_node.location = (-250, albedo_node.location.y)
+                links.new(albedo_node.outputs['Color'], mix_node.inputs['Color1'])
+                links.new(ao_node.outputs['Color'], mix_node.inputs['Color2'])
+                links.new(mix_node.outputs['Color'], target_socket)
+        else:
+            links.new(albedo_node.outputs['Color'], target_socket)
+
+    # Assign
+    for obj in target_objects:
+        if obj.type == 'MESH':
+            if not obj.data.materials: obj.data.materials.append(mat)
+            else: obj.data.materials[0] = mat
+
+    return {"SUCCESS": "Import successful (Cycles)."}
+
+def import_mesh_files_multilod(folder_path):
+    extensions = ('.fbx', '.obj', '.gltf', '.glb')
+    all_meshes = []
+    for root, _, files in os.walk(folder_path):
+        for f in files:
+            if f.lower().endswith(extensions):
+                all_meshes.append(os.path.join(root, f))
+    
+    if not all_meshes: return False, []
+
+    has_lod = any("lod" in os.path.basename(p).lower() for p in all_meshes)
+    final_list = [p for p in all_meshes if "lod0" in os.path.basename(p).lower()] if has_lod else all_meshes
+    if has_lod and not final_list and all_meshes: final_list = [all_meshes[0]]
+    if not final_list: return False, []
+
+    imported_objects = []
+    for filepath in final_list:
+        objs_before = set(bpy.context.scene.objects)
+        try:
+            l = filepath.lower()
+            if l.endswith('.fbx'): bpy.ops.import_scene.fbx(filepath=filepath)
+            elif l.endswith('.obj'): 
+                if hasattr(bpy.ops.wm, 'obj_import'): bpy.ops.wm.obj_import(filepath=filepath)
+                else: bpy.ops.import_scene.obj(filepath=filepath)
+            elif l.endswith(('.gltf', '.glb')): bpy.ops.import_scene.gltf(filepath=filepath)
+        except: continue
+        imported_objects.extend(list(set(bpy.context.scene.objects) - objs_before))
+
+    mesh_objects = [o for o in imported_objects if o.type == 'MESH']
+    
+    if mesh_objects:
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in mesh_objects: o.select_set(True)
+        bpy.context.view_layer.objects.active = mesh_objects[0]
+
+    return bool(mesh_objects), mesh_objects
+
+def create_image_plane_from_folder(folder_path):
+    valid_ext = ('.jpg', '.png', '.exr', '.tif', '.tiff')
+    target_img_path = None
+    
+    for root, _, files in os.walk(folder_path):
+        for f in files:
+            if f.lower().endswith(valid_ext) and "billboard" not in f.lower():
+                if any(x in f.lower() for x in ["albedo", "diffuse", "color"]):
+                    target_img_path = os.path.join(root, f)
+                    break
+        if target_img_path: break
+    
+    if not target_img_path:
+        for root, _, files in os.walk(folder_path):
+            for f in files:
+                if f.lower().endswith(valid_ext):
+                    target_img_path = os.path.join(root, f); break
+            if target_img_path: break
+
+    if not target_img_path:
+        bpy.ops.mesh.primitive_plane_add(size=2)
+        return bpy.context.active_object
+
+    img = bpy.data.images.load(target_img_path)
+    if img.size[1] == 0: return None
+    aspect = img.size[0] / img.size[1]
+    
+    bpy.ops.mesh.primitive_plane_add(size=2)
+    plane = bpy.context.active_object
+    plane.name = "Decal_" + os.path.basename(folder_path)
+    plane.scale.x = aspect
+    plane.scale.y = 1.0
+    return plane
+
+# --- MAIN LOGIC WRAPPER ---
+def run_import_logic(self, context, directory):
+    # 1. Mesh
+    has_mesh, new_objects = import_mesh_files_multilod(directory)
+    target_objects = []
+
+    if has_mesh:
+        target_objects = new_objects
+    else:
+        # 2. Selection
+        selected = context.selected_objects
+        if selected:
+            target_objects = selected
+        else:
+            # 3. Decal
+            plane = create_image_plane_from_folder(directory)
+            if plane: target_objects = [plane]
+
+    if not target_objects:
+        self.report({'ERROR'}, "Nothing imported and nothing selected.")
+        return {'CANCELLED'}
+
+    # 4. Material
+    result = create_and_assign_material(target_objects, directory)
+    
+    if "ERROR" in result:
+        self.report({'ERROR'}, result["ERROR"])
+        return {'CANCELLED'}
+    
+    self.report({'INFO'}, result["SUCCESS"])
+    return {'FINISHED'}
+
+
+# ==============================================================================
+# --- 2. OPERATORS ---
+# ==============================================================================
+
+class IMPORT_OT_cycles_pbr_zip(Operator, ImportHelper):
+    """Import ZIP File (Auto Mesh/Decal)"""
+    bl_idname = "import_scene.cycles_pbr_zip"
+    bl_label = "Cycles PBR (Auto ZIP)"
+    bl_options = {'REGISTER', 'UNDO'}
+    filter_glob: bpy.props.StringProperty(default="*.zip", options={'HIDDEN'})
+
+    def execute(self, context):
+        zip_path = self.filepath
+        extract_dir = os.path.splitext(zip_path)[0]
+        if not os.path.exists(extract_dir):
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref: zip_ref.extractall(extract_dir)
+            except: 
+                self.report({'ERROR'}, "Error extracting ZIP.")
+                return {'CANCELLED'}
+        return run_import_logic(self, context, extract_dir)
+
+class IMPORT_OT_cycles_pbr_folder(Operator):
+    """Import Folder (Auto Mesh/Decal)"""
+    bl_idname = "import_scene.cycles_pbr_folder"
+    bl_label = "Cycles PBR (Auto Folder)"
+    bl_options = {'REGISTER', 'UNDO'}
+    directory: bpy.props.StringProperty(name="Directory", options={'HIDDEN'}, subtype='DIR_PATH')
+    filter_folder: bpy.props.BoolProperty(default=True, options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        return run_import_logic(self, context, self.directory)
+
+
+# ==============================================================================
+# --- 3. UI & REGISTRATION ---
+# ==============================================================================
+
+class CyclesImportPreferences(AddonPreferences):
+    bl_idname = __name__
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Hotkey for ZIP Import (Default: Shift+W):")
+        wm = context.window_manager
+        kc = wm.keyconfigs.user
+        found = False
+        for km in kc.keymaps:
+            if km.name == '3D View':
+                for kmi in km.keymap_items:
+                    if kmi.idname == IMPORT_OT_cycles_pbr_zip.bl_idname:
+                        layout.context_pointer_set("keymap", km)
+                        layout.prop(kmi, "type", text="Hotkey", full_event=True)
+                        found = True; break
+        if not found: layout.label(text="Hotkey check failed.")
+
+addon_keymaps = []
+
+def menu_func_zip(self, context):
+    self.layout.operator(IMPORT_OT_cycles_pbr_zip.bl_idname, text="Cycles PBR (Auto ZIP)")
+
+def menu_func_folder(self, context):
+    self.layout.operator(IMPORT_OT_cycles_pbr_folder.bl_idname, text="Cycles PBR (Auto Folder)")
+
+def register():
+    bpy.utils.register_class(CyclesImportPreferences)
+    bpy.utils.register_class(IMPORT_OT_cycles_pbr_zip)
+    bpy.utils.register_class(IMPORT_OT_cycles_pbr_folder)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_zip)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_folder)
+    
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if kc:
+        km = kc.keymaps.new(name='3D View', space_type='VIEW_3D')
+        kmi = km.keymap_items.new(IMPORT_OT_cycles_pbr_zip.bl_idname, 'W', 'PRESS', shift=True)
+        addon_keymaps.append((km, kmi))
+
+def unregister():
+    for km, kmi in addon_keymaps: km.keymap_items.remove(kmi)
+    addon_keymaps.clear()
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_zip)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_folder)
+    bpy.utils.unregister_class(IMPORT_OT_cycles_pbr_folder)
+    bpy.utils.unregister_class(IMPORT_OT_cycles_pbr_zip)
+    bpy.utils.unregister_class(CyclesImportPreferences)
+
+if __name__ == "__main__":
+    register()
