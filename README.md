@@ -119,5 +119,3 @@ Go to **File / Import**
 ## 📸 Links
 
 * Instagram: [https://instagram.com/680pxl](https://instagram.com/680pxl)
-
-bauen 😌
