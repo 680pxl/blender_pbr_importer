@@ -1,52 +1,91 @@
-1. Prerequisite: Octane Render is Mandatory
-The most important requirement is that Octane Render must be installed and active in Blender.
+Here is the English version of the README.md, ready to be copied and pasted into your GitHub repository.
 
-Why: The script specifically searches for Octane nodes (e.g., Universal Material, Octane Image Texture, Texture Displacement).
+📦 Blender PBR Auto-Importer (Cycles & Octane)
+A powerful "One-Click" addon for Blender that automates the import of PBR texture sets (from ZIP files or folders). It handles not only the shader setup but also automatically imports the corresponding 3D model (FBX/OBJ/GLTF) if present.
 
-Result: If you try to run this in standard Blender (Cycles/Eevee), the script will fail or error out because it cannot find the necessary node types defined in find_octane_node_id.
+Available in two distinct editions:
 
-2. File Naming Conventions (Crucial)
-The addon uses a "Strict Matching" system to decide which image goes into which slot. For the auto-detection to work, your texture files must contain specific keywords in their filenames:
+Cycles/Eevee Edition (Standard Blender Workflow)
 
-Albedo/Color: Must contain albedo, diffuse, or color.
+Octane Render Edition (Specialized for Octane Nodes)
 
-Roughness: Must contain roughness or rough.
+✨ Key Features
+🚀 Automation
+Direct ZIP Import: Select a .zip file — the addon extracts it, locates textures and models, and sets everything up instantly.
 
-Normal: Must contain normal.
+Auto-Mesh Detection: If the script finds a 3D file (.fbx, .obj, .gltf, .glb) inside the folder/zip, it imports it automatically.
 
-Metallic: Must contain metallic or metalness.
+LOD Support: Automatically prioritizes LOD0 files if multiple Level of Detail versions are found.
 
-Displacement: Must contain height or disp.
+Decal / Plane Mode: If no mesh is found and nothing is selected, the addon creates a plane with the correct aspect ratio based on the texture dimensions (perfect for decals or walls).
 
-Emission/Opacity: Supports trans, opacity, or alpha.
+🧠 Smart Shader Setup
+The script uses a "Strict Matching" logic to assign textures to the correct sockets, preventing common errors (e.g., confusing Normal maps with Roughness maps).
 
-Important: The script ignores files containing words like "preview", "thumb", or "billboard".
+Supported Channels:
 
-3. Understanding the "Target Priority"
-The script decides where to apply the material based on a specific hierarchy. You need to know this to control the outcome:
+Albedo / Diffuse / Base Color
 
-Priority 1: Mesh inside the Folder/ZIP:
+Ambient Occlusion (AO) – automatically mixed with Albedo via Multiply
 
-If the folder (or ZIP) contains a 3D model (.fbx, .obj, .gltf), the script will import that model and apply the material to it automatically.
+Roughness & Metallic
 
-Note: It looks for "LOD0" specifically if multiple LODs are present.
+Normal Map (OpenGL/DirectX) & Bump
 
-Priority 2: Selected Object:
+Transmission & Opacity/Alpha
 
-If no 3D model is found in the folder, the script looks at what you have selected in the Viewport. It will apply the material to your current selection.
+Displacement & Height
 
-Priority 3: Fallback Plane (Decal):
+Auto-Fixes:
 
-If no model is in the folder AND nothing is selected in the viewport, the script creates a new Plane automatically.
+Automatically sets Color Space to Non-Color for data maps (Roughness, Normal, Metallic).
 
-It scales this plane to match the aspect ratio of the texture (useful for decals or posters).
+Enables Hashed Alpha & Shadow Mode for transparent textures (Cycles/Eevee).
 
-4. Texture Structure
-One Map per File: The script is designed for "Discrete" workflows (one file for Roughness, one for Albedo, etc.). It does not appear to support "Packed" maps (e.g., Occlusion/Roughness/Metallic packed into R, G, and B channels of a single image). It loads the whole image into the node.
+Sets up Mapping Nodes for global scaling.
 
-Supported Formats: Ensure textures are .jpg, .png, .exr, .tif, or .tiff.
+🔧 Editions & Specifics
+1. Cycles / Eevee Importer
+Shader: Based on the Principled BSDF.
 
-5. Controls
-Hotkey: The default shortcut is Shift + W.
+Compatibility: Optimized for Blender 4.2+ (works with 3.x, utilizes new 4.0+ sockets like "Transmission Weight" where available).
 
-Menu: You can find it in File > Import > Octane PBR....
+Displacement: Automatically enables "Displacement Only" in material settings.
+
+2. Octane Render Importer
+Shader: Uses the Universal Material.
+
+Nodes: Dynamically locates the correct Octane nodes (Octane Image Tex, Octane Transform, etc.).
+
+Requirement: Requires the Blender Octane Edition Plugin.
+
+📥 Installation
+Download the Python file you need:
+
+cycles_pbr_loader.py for standard Blender users.
+
+octane_pbr_importer.py for Octane users.
+
+In Blender, go to Edit > Preferences > Add-ons.
+
+Click Install... and select the file.
+
+Enable the checkbox next to the addon name.
+
+🎮 Usage
+The addon integrates seamlessly into the File > Import menu but also provides hotkeys for a fast workflow.
+
+Method A: Menu
+Go to File > Import:
+
+Cycles PBR (Auto ZIP) / (Auto Folder)
+
+Octane PBR (Auto ZIP) / (Auto Folder)
+
+Method B: Hotkey (Quick Import)
+Default Hotkey: Shift + W (in 3D View).
+
+This triggers the file browser for the ZIP Import mode.
+
+📝 License & Credits
+Developed by 680pxl. Free to use and modify.
