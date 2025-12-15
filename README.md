@@ -1,90 +1,123 @@
-📦 Blender PBR Auto-Importer (Cycles & Octane)
-A powerful "One-Click" addon for Blender that automates the import of PBR texture sets (from ZIP files or folders). It handles not only the shader setup but also automatically imports the corresponding 3D model (FBX/OBJ/GLTF) if present.
+# 📦 Blender PBR Auto-Importer (Cycles & Octane)
 
-Available in two distinct editions:
+A powerful **one-click addon for Blender** that automates the import of PBR texture sets from ZIP files or folders.
+It not only sets up shaders automatically but also imports the corresponding 3D model (FBX / OBJ / GLTF) if present.
 
-Cycles/Eevee Edition (Standard Blender Workflow)
+🔗 Repository
+[https://github.com/680pxl/blender_pbr_importer](https://github.com/680pxl/blender_pbr_importer)
 
-Octane Render Edition (Specialized for Octane Nodes)
+---
 
-✨ Key Features
-🚀 Automation
-Direct ZIP Import: Select a .zip file — the addon extracts it, locates textures and models, and sets everything up instantly.
+## ✨ Features
 
-Auto-Mesh Detection: If the script finds a 3D file (.fbx, .obj, .gltf, .glb) inside the folder/zip, it imports it automatically.
+### 🚀 Automation
 
-LOD Support: Automatically prioritizes LOD0 files if multiple Level of Detail versions are found.
+* **Direct ZIP Import**
+  Select a `.zip` file — the addon extracts it, locates textures and models, and sets everything up instantly.
 
-Decal / Plane Mode: If no mesh is found and nothing is selected, the addon creates a plane with the correct aspect ratio based on the texture dimensions (perfect for decals or walls).
+* **Auto-Mesh Detection**
+  Automatically imports 3D files (`.fbx`, `.obj`, `.gltf`, `.glb`) found inside folders or ZIP archives.
 
-🧠 Smart Shader Setup
-The script uses a "Strict Matching" logic to assign textures to the correct sockets, preventing common errors (e.g., confusing Normal maps with Roughness maps).
+* **LOD Support**
+  Prioritizes **LOD0** when multiple Levels of Detail are detected.
 
-Supported Channels:
+* **Decal / Plane Mode**
+  If no mesh is found and nothing is selected, a correctly scaled plane is created based on texture dimensions
+  (perfect for decals, walls, or surfaces).
 
-Albedo / Diffuse / Base Color
+---
 
-Ambient Occlusion (AO) – automatically mixed with Albedo via Multiply
+### 🧠 Smart Shader Setup
 
-Roughness & Metallic
+Uses **strict texture name matching** to prevent common mistakes
+(e.g. confusing Normal maps with Roughness maps).
 
-Normal Map (OpenGL/DirectX) & Bump
+#### Supported Channels
 
-Transmission & Opacity/Alpha
+* Albedo / Diffuse / Base Color
+* Ambient Occlusion (AO) — automatically multiplied with Albedo
+* Roughness / Metallic
+* Normal Map (OpenGL / DirectX) / Bump
+* Transmission / Opacity / Alpha
+* Displacement / Height
 
-Displacement & Height
+#### Auto-Fixes
 
-Auto-Fixes:
+* Sets **Color Space to Non-Color** for data textures
+  (Roughness, Normal, Metallic)
+* Enables **Hashed Alpha / Shadow Mode** for transparent textures
+  (Cycles / Eevee)
+* Adds **Mapping Nodes** for global texture scaling
 
-Automatically sets Color Space to Non-Color for data maps (Roughness, Normal, Metallic).
+---
 
-Enables Hashed Alpha & Shadow Mode for transparent textures (Cycles/Eevee).
+## 🔧 Editions
 
-Sets up Mapping Nodes for global scaling.
+### 1️⃣ Cycles / Eevee Importer
 
-🔧 Editions & Specifics
-1. Cycles / Eevee Importer
-Shader: Based on the Principled BSDF.
+* **Shader:** Principled BSDF
+* **Compatibility:** Optimized for Blender 4.2+
+  (works with 3.x, uses new 4.0+ sockets like *Transmission Weight* where available)
+* **Displacement:** Automatically enables *Displacement Only*
 
-Compatibility: Optimized for Blender 4.2+ (works with 3.x, utilizes new 4.0+ sockets like "Transmission Weight" where available).
+---
 
-Displacement: Automatically enables "Displacement Only" in material settings.
+### 2️⃣ Octane Render Importer
 
-2. Octane Render Importer
-Shader: Uses the Universal Material.
+* **Shader:** Universal Material
+* **Nodes:** Automatically locates correct Octane nodes
+  (Octane Image Tex, Octane Transform, etc.)
+* **Requirement:** Blender Octane Edition Plugin
 
-Nodes: Dynamically locates the correct Octane nodes (Octane Image Tex, Octane Transform, etc.).
+---
 
-Requirement: Requires the Blender Octane Edition Plugin.
+## 📥 Installation
 
-📥 Installation
-Download the Python file you need:
+1. Download the required Python file:
 
-cycles_pbr_loader.py for standard Blender users.
+   * `cycles_pbr_loader.py` — Cycles / Eevee
+   * `octane_pbr_importer.py` — Octane Render
 
-octane_pbr_importer.py for Octane users.
+2. In Blender:
 
-In Blender, go to Edit > Preferences > Add-ons.
+   * Go to **Edit / Preferences / Add-ons**
+   * Click **Install...**
+   * Select the downloaded file
+   * Enable the addon checkbox
 
-Click Install... and select the file.
+---
 
-Enable the checkbox next to the addon name.
+## 🎮 Usage
 
-🎮 Usage
-The addon integrates seamlessly into the File > Import menu but also provides hotkeys for a fast workflow.
+The addon integrates into **File / Import** and supports hotkeys.
 
-Method A: Menu
-Go to File > Import:
+### Method A: Menu
 
-Cycles PBR (Auto ZIP) / (Auto Folder)
+Go to **File / Import**
 
-Octane PBR (Auto ZIP) / (Auto Folder)
+* Cycles PBR (Auto ZIP)
+* Cycles PBR (Auto Folder)
+* Octane PBR (Auto ZIP)
+* Octane PBR (Auto Folder)
 
-Method B: Hotkey (Quick Import)
-Default Hotkey: Shift + W (in 3D View).
+### Method B: Hotkey (Quick Import)
 
-This triggers the file browser for the ZIP Import mode.
+* **Default Hotkey:** `Shift + W` (3D View)
+* Opens the file browser directly in ZIP import mode
 
-📝 Known Issues
-- Has issues finding the correct image textures, when the channel definition is in the name of the file. (eg. corrugated_metal_sheet). Try to use different naming schemes.
-- Cycles Version only: Uses a wrong node setup for transmission textures.
+---
+
+## 📝 Known Issues
+
+* Texture detection may fail when channel keywords are part of long filenames
+  (e.g. `corrugated_metal_sheet`).
+  ➜ Use clearer naming conventions.
+* **Cycles only:** Incorrect node setup for transmission textures.
+
+---
+
+## 📸 Links
+
+* Instagram: [https://instagram.com/680pxl](https://instagram.com/680pxl)
+
+bauen 😌
